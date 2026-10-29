@@ -1,0 +1,7 @@
+faster-whisper
+jiwer
+pandas
+soundfile
+streamlit
+matplotlib
+scikit-learn
