@@ -1,187 +1,166 @@
-# 🎙️ SpeechGuard
-### Context-Aware Speech Error Detection and Verification for ASR
+# SpeechGuard
 
-**SpeechGuard** is a research-oriented prototype that explores how Automatic Speech Recognition (ASR) systems can miss or misinterpret important information in spoken language.
+**Context-aware review support for Automatic Speech Recognition (ASR) transcripts**
 
-Instead of treating every transcription error equally, SpeechGuard focuses on potentially consequential errors involving **technical terms, numbers, units, and empty or incomplete transcripts**.
+SpeechGuard is a research prototype that runs Faster-Whisper on a CPU and applies a transparent, rule-based layer that flags transcripts a human should verify, especially those containing technical terms, numbers, units, or suspicious ASR output. It does not correct transcripts and it does not detect errors with a trained model.
 
-The goal is to help users identify parts of a transcript that may need human verification.
+## Problem statement
 
----
-
-## 🎯 Problem Statement
-
-Automatic Speech Recognition systems can produce incorrect or incomplete transcripts, especially when speech contains technical vocabulary, numbers, mixed-language expressions, or challenging audio conditions.
-
-Some mistakes may change the meaning of the original speech.
-
-For example:
+ASR systems can mis-transcribe or drop information that changes the meaning of speech, particularly technical vocabulary, numbers, units, code-mixed speech, and difficult audio.
 
 | Spoken content | Potential transcription issue |
 |---|---|
 | "My laptop has 16 GB RAM" | The number or unit may be misrecognized |
 | "Run the Python code" | A technical term may be transcribed incorrectly |
-| A short or unclear recording | The model may produce an empty transcript |
+| A short or unclear recording | The model may return an empty transcript |
 
-**SpeechGuard investigates whether context-aware warning rules can help identify these cases for human review.**
+SpeechGuard asks a narrow question: **can simple, inspectable rules help decide which transcripts deserve human verification?**
 
-## 💡 Proposed Approach
+## Project status
 
-SpeechGuard combines ASR transcription with a lightweight, rule-based verification layer.
-
-1. **Transcribe:** Generate a transcript from uploaded audio using Faster-Whisper.
-2. **Inspect:** Check the transcript for potentially important terms, numbers, units, and suspicious output.
-3. **Flag:** Highlight segments or transcripts that may require verification.
-4. **Review:** Allow the user to edit the transcript, compare it with a reference, and record review labels and notes.
-5. **Evaluate:** Explore transcription errors and detector performance using small pilot experiments.
-
-> **Important:** SpeechGuard does not currently guarantee that a flagged transcript is incorrect. It recommends human review based on predefined rules.
-
-## ✨ Features
-
-- 🎧 **Audio transcription** using Faster-Whisper.
-- 🌐 **Language options**, including automatic detection and a Telugu-focused mode.
-- 🔎 **Context-aware warning rules** for technical vocabulary, numbers, units, and empty transcripts.
-- ✍️ **Transcript editing** for manual correction.
-- 📋 **Reference comparison** to support error analysis.
-- 🏷️ **Human review labels and notes** for documenting observations.
-- 📊 **Pilot evaluation tools** for examining transcription and detection results.
-- 💻 **Local execution** on a CPU, without requiring an NVIDIA GPU.
-
-## 🛠️ Technology Stack
-
-| Technology | Purpose |
+| Implemented | Not implemented |
 |---|---|
-| Python | Core programming language |
-| Streamlit | Interactive web interface |
-| Faster-Whisper | Speech recognition |
-| Pandas | Data handling and experiment outputs |
-| JiWER | Word Error Rate evaluation |
-| Scikit-learn | Supporting evaluation utilities |
-| Matplotlib | Experiment visualizations |
+| Transcription with Faster-Whisper (`tiny` or `base`), CPU, int8 | Trained error-detection model |
+| Language modes: auto-detect, Telugu, English, and a Telugu-English "compare" mode | Automatic comparison of Tiny vs Base inside the app |
+| Rule-based review flags (table below) | In-app WER/CER computation |
+| Transcript editing, reference-transcript capture, human review labels and notes | Evaluation on a large or diverse dataset |
+| Saving examples to CSV; in-app precision/recall/F1 on confirmed labels | Handling of spoken-out numbers (only digits are matched) |
+| `scripts/evaluate_wer_cer.py` for WER/CER from reference and hypothesis CSVs | |
 
-## ⚙️ Getting Started
+## Repository structure
 
-### Prerequisites
+```
+SpeechGuard/
+├── app.py                      # Streamlit app: transcription, review rules, evaluation tab
+├── scripts/
+│   └── evaluate_wer_cer.py     # WER/CER scoring from CSV files
+├── results/
+│   ├── references.csv          # human reference transcripts (audio_file, reference)
+│   ├── hypotheses.csv          # model outputs (audio_file, model, hypothesis)
+│   ├── wer_cer_per_file.csv    # generated by the script
+│   └── wer_cer_summary.csv     # generated by the script
+├── requirements.txt
+├── LICENSE
+└── README.md
+```
 
-- Python 3.10 or a compatible version supported by the installed dependencies
-- Git
-- A working internet connection for installing dependencies and downloading the speech recognition model when needed
+Audio files are not committed. `data/recordings/` and `outputs/user_recordings.csv` are created locally by the app and are git-ignored.
 
-### 1. Clone the repository
+## How it works
+
+1. **Transcribe.** `WhisperModel(model, device="cpu", compute_type="int8")`, `beam_size=5`, voice-activity filtering disabled so short or quiet clips are not removed. In "Telugu-English mixed (compare)" mode each clip is decoded twice (auto-detected language and Telugu-forced), which doubles CPU time. The two outputs are shown side by side; neither is assumed correct.
+2. **Inspect.** The transcript and Whisper's decoding diagnostics are checked against the rules below.
+3. **Flag.** If any rule fires, the app shows "Verification recommended" with the reasons.
+4. **Review.** The user can edit the transcript, enter a human-verified reference, and record two independent labels: whether the transcript contains a consequential error, and whether a human should review it.
+5. **Evaluate.** Labelled examples are accumulated in a CSV, and the Evaluation tab reports TP/FP/FN/TN, precision, recall, F1, accuracy and false-positive rate on confirmed yes/no labels only.
+
+### Review rules (as implemented)
+
+| Reason code | Condition |
+|---|---|
+| `empty_transcript` | Transcript is empty |
+| `unexpected_script_signal` | Output contains Arabic-script characters |
+| `heavily_hyphenated_output` | A token with three or more hyphen-joined parts |
+| `low_asr_log_probability` | Mean segment `avg_logprob` < -1.0 |
+| `high_no_speech_probability` | Mean segment `no_speech_prob` > 0.6 |
+| `high_compression_ratio` | Mean segment `compression_ratio` > 2.4 |
+| `technical_terms_to_verify` | A word from a fixed list is present (for example python, code, laptop, ram, file, project, meeting, gb, mb) |
+| `numbers_or_units_to_verify` | A digit sequence, optionally followed by a unit (gb, mb, tb, kg, mg, km, cm, mm, mph, ghz, mhz) |
+| `possible_phonetic_technical_term_mismatch` | A token matches a hard-coded variant of "python" or "code" |
+
+**Read these rules as review triggers, not error detectors.** `technical_terms_to_verify` fires on word presence alone, so a perfectly transcribed sentence containing "file" or "project" is flagged. The term list and the phonetic variants were chosen from the pilot recordings and have not been validated on other data. The log-probability, no-speech and compression thresholds are diagnostic heuristics, not calibrated measures of correctness.
+
+## Evaluation methodology
+
+- **WER** = (substitutions + deletions + insertions) / number of reference words.
+- **CER** = the same ratio over reference characters (Unicode code points, spaces included).
+- **Aggregation.** Overall figures are micro-averaged: total errors divided by total reference units across all recordings, not the mean of per-file scores.
+- **Normalization.** Applied identically to references and hypotheses: Unicode NFC, lowercase, punctuation replaced by spaces, whitespace collapsed. Letters and combining marks (including Telugu script) are preserved. `--no-normalize` scores raw strings.
+- **Implementation.** [JiWER](https://github.com/jitsi/jiwer) (Levenshtein alignment) in `scripts/evaluate_wer_cer.py`.
+- **Detector metrics.** Precision, recall and F1 are computed in the app only where a human label is confirmed as yes or no. Treating "review recommended" as a prediction of "actual consequential error" is a proxy; the separate `human_review_needed` label measures review usefulness directly.
+
+To reproduce the WER/CER figures:
 
 ```bash
-git clone https://github.com/RoshiniJulluri/SpeechGuard.git
-cd SpeechGuard
+python scripts/evaluate_wer_cer.py --refs results/references.csv --hyps results/hypotheses.csv --out-dir results
 ```
 
-### 2. Create a virtual environment
+## Preliminary experiment: Tiny vs Base on Telugu-English speech
 
-**Windows PowerShell:**
+**This is a pilot on six recordings and should not be read as a general model comparison.**
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
+- **Data:** six manually transcribed Telugu-English code-switched recordings. [FILL IN: speaker(s), approximate total duration, recording device/conditions.]
+- **Models:** Faster-Whisper `tiny` and `base`, CPU, int8. [FILL IN: language mode(s) used, beam size, and Faster-Whisper version.]
+- **Outputs:** `results/references.csv`, `results/hypotheses.csv`, `results/wer_cer_per_file.csv`, `results/wer_cer_summary.csv`.
 
-If PowerShell blocks environment activation, follow the Python documentation for your system's execution policy or activate the environment using another supported method.
-
-### 3. Install dependencies
-
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 4. Run the application
-
-```bash
-streamlit run SpeechGuard_app_fixed.py
-```
-
-Streamlit will display a local URL in the terminal. Open that URL in your browser to use SpeechGuard.
-
-**Note:** The first run may take longer because the speech recognition model may need to be downloaded. CPU inference speed depends on your hardware and the selected model.
-
-## 🔬 Research and Evaluation
-
-SpeechGuard is being developed as an exploratory project to study consequential speech recognition errors and lightweight verification methods.
-
-Current experimentation includes:
-
-- Comparing Faster-Whisper model outputs.
-- Examining errors involving technical vocabulary and numerical information.
-- Comparing predictions against reference transcripts.
-- Recording human judgments about potentially consequential errors.
-- Evaluating detection results using precision, recall, F1-score, and other suitable metrics when the available data supports them.
-
-### Evaluation methodology
-
-The project uses standard evaluation concepts:
-
-- **Word Error Rate (WER):** Measures word-level differences between a reference transcript and a predicted transcript.
-- **Precision:** Measures how many flagged cases are genuinely positive among all flagged cases.
-- **Recall:** Measures how many genuinely positive cases the detector successfully identifies.
-- **F1-score:** Combines precision and recall into a single metric.
-
-Evaluation results should be interpreted in the context of the dataset size, label quality, and the distribution of positive and negative examples. Small pilot experiments are not sufficient to establish general performance.
-
-### Additional Experiment: Telugu-English ASR Comparison
-
-An initial comparison was conducted using six manually transcribed Telugu-English code-switched audio recordings to evaluate Faster-Whisper Tiny and Base models.
-
-| Evaluation Metric | Tiny | Base |
+| Metric | Tiny | Base |
 |---|---:|---:|
 | Recordings | 6 | 6 |
 | Reference words | 53 | 53 |
 | Word errors | 16 | 19 |
 | Overall WER | 30.19% | 35.85% |
+| Reference characters |  |  |
+| Character errors |  |  |
 | Overall CER | 18.55% | 18.55% |
 
-**Observations:**
-- Tiny achieved a lower WER than Base in this small experiment.
-- Both models had identical aggregate CER.
-- Both models showed difficulties with Telugu-English mixed speech, particularly in preserving surrounding words and instructions.
-- Larger model size did not necessarily result in lower WER on this sample.
+Replace the bracketed cells and confirm every figure against `results/wer_cer_summary.csv`. If the script's output differs from the figures above because of normalization choices, report the script's output and state the normalization.
 
-### Initial Rule-Based Detector Results
+**Observations (this sample only):**
 
-The existing SpeechGuard detector was tested on the same six recordings using empty-transcript detection, expected critical-term verification, and model-disagreement checks.
+- Tiny had a lower WER than Base.
+- Both models had the same aggregate CER.
+- [FILL IN: two or three concrete per-recording observations, for example which words, numbers or instructions were lost, taken from `results/wer_cer_per_file.csv`.]
 
-| Outcome | Recordings |
-|---|---:|
-| Review recommended | 4 |
-| No rule triggered | 2 |
-| Total | 6 |
+### Review flags on the same six recordings
 
-These figures represent review recommendations, not verified detection accuracy. Precision, recall and F1-score have not yet been established for this six-recording experiment.
+[FILL IN: after running the rules above on the six hypotheses, state how many recordings in each model/decoding setting triggered at least one rule, and which reason codes fired.]
 
-## ⚠️ Current Limitations
+These counts describe how often a review was recommended, not detection accuracy. Precision, recall and F1 have not been established for this pilot.
 
-- The consequential-error detector is **rule-based**, not a trained machine learning classifier.
-- A warning indicates a potential issue; it does not prove that the transcription is wrong.
-- The current experiments use a small pilot dataset and are not representative of all speakers, languages, accents, or recording conditions.
-- Telugu-English code-mixed speech requires further systematic evaluation.
-- Model comparisons and evaluation metrics need larger, carefully annotated datasets before drawing strong conclusions.
-- SpeechGuard is a research prototype, not a production-ready or safety-critical verification system.
+## Setup and usage
 
-## 🚀 Future Work
+**Requirements:** Python, Git, and internet access on first run (dependencies and Whisper model download). No NVIDIA GPU is required.
 
-- Build a larger, more diverse, and carefully annotated evaluation dataset.
-- Improve support for Telugu-English code-mixed speech.
-- Investigate confidence-aware and context-aware error detection.
-- Compare rule-based methods with learned approaches when sufficient labeled data is available.
-- Evaluate detection quality across different speech recognition models and recording conditions.
-- Study the relationship between transcription errors and their potential impact on meaning.
+```bash
+git clone https://github.com/RoshiniJulluri/SpeechGuard.git
+cd SpeechGuard
 
-## 👩‍💻 Project
+# Windows (PowerShell)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
-**Author:** Roshini Julluri  
-**Project:** SpeechGuard  
-**Focus:** Speech Recognition, Error Analysis, and Context-Aware Verification
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
 
-This project is an ongoing exploration of how speech recognition systems can be made easier to verify and more reliable in situations where specific words, numbers, or units matter.
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+streamlit run app.py
+```
 
----
+Open the local URL that Streamlit prints. The first transcription is slower because the model is downloaded; CPU speed depends on your hardware and chosen model. Suggested first try: model `base`, language mode "Telugu-English mixed (compare)", and a clear 5-15 second clip.
 
-*SpeechGuard is an experimental research prototype. It is intended to support investigation and human review, not to replace them.*
+## Limitations
+
+- The detector is rule-based. A flag means "verify this," not "this is wrong," and a missing flag does not mean the transcript is correct.
+- Flags depend on keyword presence, a hand-written term list, and variants taken from the pilot data.
+- Only digit numerals are matched; numbers spoken as words are not.
+- The pilot has six short recordings, so results cannot be generalized across speakers, accents, languages or acoustic conditions.
+- The Tiny vs Base comparison is small-sample and describes this sample only.
+- SpeechGuard is not a production or safety-critical verification system.
+
+## Future work
+
+- Larger, more diverse, carefully annotated evaluation data, with Telugu-English code-mixed speech evaluated systematically.
+- Per-recording error analysis of technical terms and numbers.
+- Validating and expanding the review rules, and measuring their precision and recall on held-out recordings.
+- Confidence-aware and learned approaches, compared against the rule-based baseline once enough labelled data exists.
+- Side-by-side model comparison inside the app.
+
+## License
+
+MIT. See `LICENSE`.
+
+## Author
+
+Roshini Julluri
