@@ -126,6 +126,36 @@ The project uses standard evaluation concepts:
 
 Evaluation results should be interpreted in the context of the dataset size, label quality, and the distribution of positive and negative examples. Small pilot experiments are not sufficient to establish general performance.
 
+### Additional Experiment: Telugu-English ASR Comparison
+
+An initial comparison was conducted using six manually transcribed Telugu-English code-switched audio recordings to evaluate Faster-Whisper Tiny and Base models.
+
+| Evaluation Metric | Tiny | Base |
+|---|---:|---:|
+| Recordings | 6 | 6 |
+| Reference words | 53 | 53 |
+| Word errors | 16 | 19 |
+| Overall WER | 30.19% | 35.85% |
+| Overall CER | 18.55% | 18.55% |
+
+**Observations:**
+- Tiny achieved a lower WER than Base in this small experiment.
+- Both models had identical aggregate CER.
+- Both models showed difficulties with Telugu-English mixed speech, particularly in preserving surrounding words and instructions.
+- Larger model size did not necessarily result in lower WER on this sample.
+
+### Initial Rule-Based Detector Results
+
+The existing SpeechGuard detector was tested on the same six recordings using empty-transcript detection, expected critical-term verification, and model-disagreement checks.
+
+| Outcome | Recordings |
+|---|---:|
+| Review recommended | 4 |
+| No rule triggered | 2 |
+| Total | 6 |
+
+These figures represent review recommendations, not verified detection accuracy. Precision, recall and F1-score have not yet been established for this six-recording experiment.
+
 ## ⚠️ Current Limitations
 
 - The consequential-error detector is **rule-based**, not a trained machine learning classifier.
